@@ -1,4 +1,7 @@
-### OSC imports ###
+### JGEX OSC module ###
+
+
+# OSC server imports
 
 import collections
 import logging
@@ -15,202 +18,408 @@ import socket
 from socket import socket as _socket
 import sys
 import os
-
-if sys.version_info > (3, 5):
-    from collections.abc import Iterable
-else:
-    from collections import Iterable
-
+from collections.abc import Iterable
 import struct
-
 from datetime import datetime, timedelta, date
-
 from typing import NamedTuple
 
 
-
-### gremlin start ####
+### gremlin start ------------------------------------------------------- 
 
 
 import gremlin
 import threading
-from gremlin.spline import CubicSpline
-from vjoy.vjoy import AxisName
-from configuration import * # load constants from the configuration.py file
-from util import *
+from gremlin.macro import Macro, key_from_name, MacroManager
 
-
-import threading
-
-
-def osc_message_handler(address, *args):
-    print(f"OSC: {address}: {args}")
-    try:
-        vjoy = GetVjoy()
-        FAST_C = 0.75
-        SLOW_C = 0.6
-        FAST_CC = 0.25
-        SLOW_CC = 0.4
-        address = address.lower()
-        if address == "/knob":
-            (x,y) = args
-
-            # fast clockwise
-            if x > FAST_C:
-                vjoy[3].button(1).is_pressed = False
-                vjoy[3].button(2).is_pressed = True
-            elif x > SLOW_C:
-                vjoy[3].button(1).is_pressed = True
-                vjoy[3].button(2).is_pressed = False
-            if x < FAST_CC:            
-                vjoy[3].button(3).is_pressed = False
-                vjoy[3].button(4).is_pressed = True
-            elif x < SLOW_CC:
-                vjoy[3].button(3).is_pressed = True
-                vjoy[3].button(4).is_pressed = False
-            else:
-                vjoy[3].button(1).is_pressed = False
-                vjoy[3].button(2).is_pressed = False
-                vjoy[3].button(3).is_pressed = False
-                vjoy[3].button(4).is_pressed = False
-
-        elif address == "/enc_heading":
-            pass
-
-        elif address.startswith("/vjoy"):
-            # format is /vjoy/command
-            #
-            # command:
-            #   D[device_number]B[button_number]P[duration]A[axis_number]v[axis_value]
-            #  
-            #  number: vjoy device number (1 based) so the first device is 1
-            #  button_number: button 1 to 128
-            #  axis_number: 1 to 8
-            #  axis value: -1000 to +1000, floating point values are accepted
-            #  P: if provided, indicates the button is pulsed for 250ms (default) - if more than that use the duration in milliseconds, so 500 is half a second
-            x = 0
-            y = 0
-            arg_count = len(args)
-            if arg_count == 2:
-                (x,y) = args
-            elif arg_count == 1:
-                x = args[0]
-            valid = False
-            splits = address.split("/")
-            if len(splits) == 3:
-                # get the last arg
-                command = splits.pop()
-                    
-                regex = r'([d]|b[r|p]?|[a]|[v])\s*([+|-]?[0-9]*[.]?[0-9]*)'
-                matches =re.findall(regex, command)
-
-                vjoy_device = 0
-
-                # list of all actions
-                actions = []
-                axis_actions = []
-
-                # current action
-                action = None
-
-                for (item, data) in matches:
-                    # something got extracted - makes sense of it
-                    try:
-                        
-                        value_provided = False
-                        value = int(data)
-                        
-
-                        if item == "d":
-                            vjoy_device = value
-                        elif item in ("b","bp"):
-                            # press action
-                            action = [vjoy_device, value, True, False, 0]
-                            actions.append(action)
-
-                        elif item == "br":
-                            # release action
-                            action = [vjoy_device, value, False, False, 0]
-                            actions.append(action)
-
-                        elif item == "p":
-                            if action and action[1]:
-                                # action must exist and must be a press action
-                                action[3] = True
-                                if value <= 0:
-                                    # make sure it's at least 200 ms to even register
-                                    value = 200
-                                action[4] = value/1000
-
-                        elif item == "a":
-                            # store the value that comes in at 0 to 1 to range -1 to +1 
-                            axis_action = [vjoy_device, value, x*2 - 1]
-                            axis_actions.append(axis_action)
-                        elif item == "v":
-                            if axis_action:
-                                # current axis action from setup
-                                v = float(data)/1000
-                                if v > 1.0: 
-                                    v = 1.0
-                                elif v < -1.0: 
-                                    v = -1.0
-
-                                axis_action[2]= v
-
-                        
-                    except:
-                        print(f"Unable to parse command: {command}")
-                        
-                
-                # process the command
-                for (vjoy_device, vjoy_button, is_pressed, is_pulse, duration) in actions:
-                    if 0 < vjoy_device <= 8 and 0 < vjoy_button <= 128:
-                        # valid
-                        if is_pulse:
-                            pulse(vjoy, vjoy_device, vjoy_button, duration)
-                            print(f"VJOY[{vjoy_device}] button({vjoy_button}): pulse   duration: {duration:0.4f})")
-                        else:
-                            vjoy[vjoy_device].button(vjoy_button).is_pressed = is_pressed
-                            print(f"VJOY[{vjoy_device}] button({vjoy_button}): {'press' if is_pressed else 'release'}")
-
-                for (vjoy_device, vjoy_axis, value) in axis_actions:
-                    if 0 < vjoy_device <= 8 and 0 < vjoy_axis <= 8 and -1.0 <= value <= 1.0:
-                        vjoy[vjoy_device].axis(vjoy_axis).value = value
-                        print(f"VJOY[{vjoy_device}] axis({vjoy_axis} value: {value:0.4f})")
-
-    except Exception as ex:
-        print(F"Command parse error: {ex}")
-
-
-ip = "192.168.1.59"
-port = 8000
+# host IP - change this to your IP address - this cannot usually be localhost or 127.0.0.1 but the actual IP of the machine
+# the IP address can be found from a command line by running ipconfig /all  at a C: prompt
+host_ip = "192.168.1.59"
+# host OSC listen port (UDP) - make sure the host's firewall allows that port in
+in_port = 8000
+out_port = 8001
 
 PERIODIC = 0.25
 osc = None
 
+
+
+def GetVjoy():
+	''' get the vjoy device (virtual hardware input)'''
+	return gremlin.joystick_handling.VJoyProxy()
+
+def log(msg):
+    ''' displays a log message in Gremlin and in the console '''
+    gremlin.util.log(msg)
+    #print(msg)
+
+# async routine to pulse a button
+def _fire_pulse(vjoy, unit, button, repeat = 1, duration = 0.2):
+	if repeat < 0:
+		repeat = -repeat
+		for i in range(repeat):
+			# gremlin.util.log("Pulsing vjoy %s button %s on" % (unit, button) )    
+			vjoy[unit].button(button).is_pressed = True
+			time.sleep(duration)
+			vjoy[unit].button(button).is_pressed = False
+			time.sleep(duration)
+	else:
+		if repeat <= 1: 
+			gremlin.util.log("Pulsing vjoy {} button {} on".format(unit, button))  
+			vjoy[unit].button(button).is_pressed = True
+			time.sleep(duration)
+			vjoy[unit].button(button).is_pressed = False
+		else:
+			vjoy[unit].button(button).is_pressed = True
+			time.sleep(duration*repeat)
+			vjoy[unit].button(button).is_pressed = False        
+		
+	# gremlin.util.log("Pulsing vjoy %s button %s off" % (unit, button) )
+
+# pulses a button - unit is the vjoy output device number, button is the number of the button on the device to pulse
+def pulse(vjoy, unit, button, duration = 0.2, repeat = 1):
+	gremlin.util.log("pulsing: unit {} button {}".format(unit, button))
+	threading.Timer(0.01, _fire_pulse, [vjoy, unit, button, repeat, duration]).start()
+
+
+class Speech():
+	''' tts interface '''
+	def __init__(self):
+		import win32com.client
+		self.speaker = win32com.client.Dispatch("SAPI.SpVoice")
+
+	def speak(self, text):
+		try:
+			self.speaker.speak(text)
+		except:
+			pass
+
+
+def speech_handler(address, x):
+    ''' handles sending text to speech '''
+    splits = address.split("/")
+    if len(splits) < 3:
+        # not enough data
+        return
+    speech = splits[2:].pop()
+    Speech().speak(speech)
+
+
+
+def keyboard_handler(address, x):
+    ''' handles keyboard commands - address is already in lowercase '''
+    import re
+    import itertools
+    log(f"KEYBOARD: received {address} {x}")
+    splits = address.split("/")
+    if len(splits) < 3:
+        # not enough data
+        return
+    
+    # remove the command
+    splits = splits[2:]
+    pattern = re.compile(r"([+|-])|([a-z]+)|(\[[0-9]+\])")
+    macro = Macro()
+    tail = []
+    key_down = False
+    key_up = False
+    for section in splits:
+        # further split each section in keyboard commands
+        commands = list(itertools.chain.from_iterable(pattern.findall(section)))
+        for token in commands:
+            
+            if token == "+":
+                key_down = True
+                continue
+            if token == "-":
+                key_up = True
+                continue
+
+            if token.startswith("["):
+                # insert a delay - the square brackets contain the delay in ms
+                # strip first and last
+                token = token[1:][:-1]
+                if token.isnumeric():
+                    delay_ms = int(token)
+                    macro.pause(delay_ms/1000)
+                continue
+
+            key = None
+
+            if token in ("ctr", "lctr", "ctrl","lctrl","leftcontrol"):
+                key = "leftcontrol"
+            elif token in ("rctr", "rctrl", "rightcontrol"):
+                key = "rightcontrol"
+            elif token in ("shft","lshft","shift","lshift","leftshift"):
+                key = "leftshift"
+            elif token in ("rshft", "rshift","rightshift"):
+                key = "rightshift"
+            elif token in ("alt", "lalt","leftalt"):
+                key = "leftalt"
+            elif token == "ralt":
+                key = "rightalt"
+            elif token in ("win","lwin","leftwin"):
+                key = "leftwin"
+            elif token in ("rwin","rightwin"):
+                key = "rightwin"
+            elif token in ("pgdn","pagedown"):
+                key = "pagedown"
+            elif token in ("pgup","pageup"):
+                key = "pageup"
+            elif token == "slash":
+                key = "/"
+            else:
+                # regular key - output by character
+                key = token
+            
+            if not key:
+                # don't know how to handle
+                continue
+            
+            a_list = []
+            
+            action_key = key_from_name(key, validate = True)
+            if not action_key:
+                # check for text sequence that are press only without spacers - so wasd would pres w a s d separately
+                for c in key:
+                    action_key = key_from_name(c, validate = True)
+                    if action_key:
+                        a_list.append(action_key)
+            else:
+                a_list = [action_key]
+                    
+            if a_list:
+                for action_key in a_list:
+                    if key_down:
+                        macro.action(action_key, True)
+                    elif key_up:
+                        macro.action(action_key, False)
+                    else:
+                        # press the key
+                        macro.action(action_key, True)
+                        # key a release action on the tail end of the macro at the start of the queue (so they are in the correct reverse order)
+                        tail.insert(0, action_key)
+
+                key_down = False
+                key_up = False
+            else:
+                # invalid key found
+                log(f"OSC Macro error: cannot parse: {key}")
+                return
+
+    # append all the release actions
+    for key in tail:
+        macro.action(key, False)
+
+    # debug
+    cmd = ''
+    for action in macro.sequence:
+        cmd += (f"{'+' if action.is_pressed else '-' } {action.key.name} ({action.key.scan_code}) ")
+    log(f"Macro: {cmd}")
+
+    # # execute the macro if it contains anything
+    # if macro.sequence:
+    #     MacroManager().queue_macro(macro)
+    
+
+def vjoy_handler(address, args):
+    ''' handles vjoy output '''
+    # format is /vjoy/command
+    #
+    # command:
+    #   D[device_number]B[button_number]P[duration]A[axis_number]v[axis_value]
+    #  
+    #  number: vjoy device number (1 based) so the first device is 1
+    #  button_number: button 1 to 128
+    #  axis_number: 1 to 8
+    #  axis value: -1000 to +1000, floating point values are accepted
+    #  P: if provided, indicates the button is pulsed for 250ms (default) - if more than that use the duration in milliseconds, so 500 is half a second
+    vjoy = GetVjoy()
+    x = 0
+    y = 0
+    arg_count = len(args)
+    if arg_count == 2:
+        (x,y) = args
+    elif arg_count == 1:
+        x = args[0]
+    valid = False
+    splits = address.split("/")
+    if len(splits) == 3:
+        # get the last arg
+        command = splits.pop()
+            
+        regex = r'([d]|b[r|p]?|[a]|[v])\s*([+|-]?[0-9]*[.]?[0-9]*)'
+        matches =re.findall(regex, command)
+
+        vjoy_device = 0
+
+        # list of all actions
+        actions = []
+        axis_actions = []
+
+        # current action
+        action = None
+
+        for (item, data) in matches:
+            # something got extracted - makes sense of it
+            try:
+                
+                value_provided = False
+                value = int(data)
+                
+
+                if item == "d":
+                    vjoy_device = value
+                elif item in ("b","bp"):
+                    # press action
+                    action = [vjoy_device, value, True, False, 0]
+                    actions.append(action)
+
+                elif item == "br":
+                    # release action
+                    action = [vjoy_device, value, False, False, 0]
+                    actions.append(action)
+
+                elif item == "p":
+                    if action and action[1]:
+                        # action must exist and must be a press action
+                        action[3] = True
+                        if value <= 0:
+                            # make sure it's at least 200 ms to even register
+                            value = 200
+                        action[4] = value/1000
+
+                elif item == "a":
+                    # store the value that comes in at 0 to 1 to range -1 to +1 
+                    axis_action = [vjoy_device, value, x*2 - 1]
+                    axis_actions.append(axis_action)
+                elif item == "v":
+                    # sets the axis to a known value -1000 to +1000
+                    if axis_action:
+                        # current axis action from setup
+                        v = float(data)/1000
+                        if v > 1.0: 
+                            v = 1.0
+                        elif v < -1.0: 
+                            v = -1.0
+
+                        axis_action[2]= v
+
+                
+            except:
+                log(f"Unable to parse command: {command}")
+                
+        
+        # process the command
+        for (vjoy_device, vjoy_button, is_pressed, is_pulse, duration) in actions:
+            if 0 < vjoy_device <= 8 and 0 < vjoy_button <= 128:
+                # valid
+                if is_pulse:
+                    pulse(vjoy, vjoy_device, vjoy_button, duration)
+                    log(f"VJOY[{vjoy_device}] button({vjoy_button}): pulse   duration: {duration:0.4f})")
+                else:
+                    vjoy[vjoy_device].button(vjoy_button).is_pressed = is_pressed
+                    log(f"VJOY[{vjoy_device}] button({vjoy_button}): {'press' if is_pressed else 'release'}")
+
+        for (vjoy_device, vjoy_axis, value) in axis_actions:
+            if 0 < vjoy_device <= 8 and 0 < vjoy_axis <= 8 and -1.0 <= value <= 1.0:
+                vjoy[vjoy_device].axis(vjoy_axis).value = value
+                log(f"VJOY[{vjoy_device}] axis({vjoy_axis} value: {value:0.4f})")    
+
+
+def osc_message_handler(address, *args):
+    log(f"OSC: {address}: {args}")
+    address = address.lower()
+    ESC = "!ESC!"
+    try:
+        commands = []
+        keywords = ["say","key","kbd","knob","vjoy"]
+        # check for special characters 
+
+        splits = address.split("/")
+        while splits:
+            split = splits.pop(0)
+            if not split:
+                # blank
+                continue
+            if splits and split in keywords:
+                commands.append("/"+split+"/"+splits.pop(0))
+
+        for cmd in commands:
+            if cmd.startswith("/key") or cmd.startswith("/kbd"):
+                # send to keyboard macro handler
+                keyboard_handler(cmd, args[0])
+            elif cmd.startswith("/say"):
+                # send to text to speech handler
+                speech_handler(cmd, args[0])
+            else:
+                # joystick related
+                vjoy = GetVjoy()
+                FAST_C = 0.75
+                SLOW_C = 0.6
+                FAST_CC = 0.25
+                SLOW_CC = 0.4
+                
+                if cmd == "/knob":
+                    (x,y) = args
+
+                    # fast clockwise
+                    if x > FAST_C:
+                        vjoy[3].button(1).is_pressed = False
+                        vjoy[3].button(2).is_pressed = True
+                    elif x > SLOW_C:
+                        vjoy[3].button(1).is_pressed = True
+                        vjoy[3].button(2).is_pressed = False
+                    if x < FAST_CC:            
+                        vjoy[3].button(3).is_pressed = False
+                        vjoy[3].button(4).is_pressed = True
+                    elif x < SLOW_CC:
+                        vjoy[3].button(3).is_pressed = True
+                        vjoy[3].button(4).is_pressed = False
+                    else:
+                        vjoy[3].button(1).is_pressed = False
+                        vjoy[3].button(2).is_pressed = False
+                        vjoy[3].button(3).is_pressed = False
+                        vjoy[3].button(4).is_pressed = False
+
+                elif cmd == "/enc_heading":
+                    pass
+
+                elif cmd.startswith("/vjoy"):
+                    vjoy_handler(cmd, args)
+
+                    
+
+    except Exception as ex:
+        log(F"Command parse error: {ex}")
+
+
+### OSC handler start ------------------------------------------------------- 
+# Adapted from: Python-OSC  https://github.com/attwad/python-osc 
+# Credits go to AttWad
+# ####
 
 class Osc:
 
 
     def thread_loop(self):
         ''' main threading loop '''
-        print("OSC: server starting")
+        log("OSC: server starting")
         self._dispatcher = Dispatcher()
         self._dispatcher.set_default_handler(osc_message_handler)
-        self._server = BlockingOSCUDPServer((ip, port), self._dispatcher)
+        self._server = BlockingOSCUDPServer((host_ip, in_port), self._dispatcher)
         
         # this blocks until the server is shutdown
-        print("OSC: server running")
+        log("OSC: server running")
 
         # this runs after the server has shutdown
         self._server.serve_forever()  # Blocks forever
-        print("OSC: server shutdown")
+        log("OSC: server shutdown")
         self._server = None
 
 
 
     def __init__(self):
-        print("OSC: init")
+        log("OSC: init")
         self._server = None
         self._server_thread = None
         self._stop = False
@@ -224,7 +433,7 @@ class Osc:
     def started(self):
         ''' true if server is started or in the process of starting '''
         if self._lock.locked():
-            print("OSC: server locked")
+            log("OSC: server locked")
             return True
         
         return self._running
@@ -235,7 +444,7 @@ class Osc:
         with self._lock:
             # everything here is now locked until the server start is completed
 
-            print("OSC: start requested")
+            log("OSC: start requested")
             if self._running:
                 return
             
@@ -250,22 +459,22 @@ class Osc:
         ''' stops the server '''
         if not self._running or self._start_requested:
             return
-        print("OSC: stop requested")
+        log("OSC: stop requested")
         self._stop = True
         if self._server:
             self._server.shutdown()
         self._server_thread.join()
         self._server_thread = None
         self._running = False
-        print("OSC: server stopped")
+        log("OSC: server stopped")
 
     def __del__(self):
-        print("OSC stopping...")
+        log("OSC stopping...")
         self.stop()
 
 @gremlin.input_devices.gremlin_start()
 def start():
-    print("Gremlin start!")
+    log("Gremlin start!")
     global osc
     osc = Osc()
     osc.start()
@@ -273,14 +482,14 @@ def start():
 
 @gremlin.input_devices.gremlin_stop()
 def stop():
-    print("Gremlin stop!")
+    log("Gremlin stop!")
     global osc
     if osc:
         osc.stop()
 
 @gremlin.input_devices.gremlin_mode()
 def mode_changed(mode):
-    print(f"Gremlin mode change!: {mode}")
+    log(f"Gremlin mode change!: {mode}")
 
 
 
