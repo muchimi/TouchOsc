@@ -89,30 +89,134 @@ In this example, we are now sending a button press while the control is held (de
 JGEX recognizes OSC commands in the usual OSC format of nested commands.  These are text strings and they are not case sensitive but the order matters.
 
 
+## Text to speech
+
 	/say/speech text
 
 Converts the string to speech.
 
+
+## Joystick commands
 
 
 	/vjoy/[vjoy command]
 	
 Sends joystick output via VJOY.  Available commands for [vjoy command]:
 
-d[1-8]: specifies which Vjoy device the output goes to.  
+	d[1..8]
 
-b[1-128]: specifies which button is pressed.
+specifies which Vjoy device the output goes to.  
 
-r[1-128]: releases specified button.
+	bp[1..128]  
+	b[1..128]
+	
+Specifies which button is pressed.
 
-tb[1-128]: toggles the button.
+	br[1..128]
+	r[1..128]
+	
+Releases specified button.
 
-p[delay]: pulses the button for the specific duration.  If not specified, 250ms is the default.
+	t[1..128]
+	tb[1..128]
+	
+Toggles the button.
 
-a[1..8]: specifies the axis to output the value to.  If not followed by a v command, the value of the axis is taken from the OSC x argument, expected to be in the floating point range 0 to 1.
+	p[delay]
+	
+Pulses the button for the specific duration.  If not specified, 250ms is the default.
 
-v[-1000..+1000]: when following an axis command, sets that axis to the specific value divided by 1000 for a range -1 to +1 (so -1000 is -1, +1000 is +1).
 
+	a[1..8]
+
+Specifies the axis to output the value to.  If not followed by a v command, the value of the axis is taken from the OSC x argument, expected to be in the floating point range 0 to 1.
+
+	v[-1000..+1000]
+	
+When following an axis (a) command, sets that axis to the specific value divided by 1000 for a range -1 to +1 (so -1000 is -1, +1000 is +1).
+
+
+## Keyboard macro commands
+
+	/kbd/[keyboard commands]
+	/key/[keyboard commands]
+
+Starts a keyboard command specified in the second parameter.
+
+	+
+
+Indicates a press action. All commands following this will be pressed.
+
+	-
+
+Indicates a release action.  All commands following this will be released.
+
+	a..z
+	
+Keyboard letters a to z (not case sensitive)
+
+	F1..F12
+	
+Function keys
+
+	printscreen
+	scrolllock
+	pause
+	insert
+	delete
+	pageup
+	pagedown
+	up
+	left
+	right
+	down
+	numlock
+	npdivide
+	npmultiply
+	npminus
+	npplus
+	npenter
+	npdelete
+	np0..np9
+	backspace
+	space
+	tab
+	capslock
+	leftshift lshft lshift
+	rightshift rshft rshift
+	leftalt lalt
+	rightalt ralt
+	leftcontrol lctrl
+	rightcontrol rctrl
+	leftwin lwin
+	rightwin rwin
+	apps
+	enter
+	esc
+
+	
+
+Special regular and extended keys
+
+	slash
+	
+Represents the "/" key used as an OSC command separator
+
+## Make/Break vs tap
+
+Use the + or - characters to indicate make (press) or break (release) events on keys.  If none are used, the key will be pressed and released after a 250ms break.
+
+Any + must be met by a corresponding - or the key will remain pressed which can cause keyboard buffer and application errors.
+
+## Multiple keys
+
+The use of + and - make it possible to keep multiple keys pressed at the same time that would not otherwise be easy to do.
+
+Gremlin is aware of the difference between extended keys and regular keys, and left and right modifier keys.
+
+## Separating keys
+
+Spaces should separate keywords.  For example, sending s 
 
 
 Examples:
@@ -145,7 +249,6 @@ Set device 1 axis 1 using the x value, and says "something" with text to speech,
 	/vjoy/d1a1/key/n/say/something
 	
 	
-
 
 # List of files:
 

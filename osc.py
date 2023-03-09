@@ -279,6 +279,12 @@ def vjoy_handler(address, args):
                     action = [vjoy_device, value, False, False, 0]
                     actions.append(action)
 
+                elif item in ("t","tb"):
+                    # toggle button
+                    state = vjoy[vjoy_device].button(value).is_pressed
+                    action = [vjoy_device, value, not state, False, 0]
+                    actions.append(action)
+
                 elif item == "p":
                     if action and action[1]:
                         # action must exist and must be a press action
